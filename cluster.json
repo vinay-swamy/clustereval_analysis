@@ -1,0 +1,20 @@
+{
+	"__default__" :
+	{
+		"partition" : "norm",
+		"time" : "08:00:00",
+		"mem" : "24g",
+		"name": "{rule}.clusterval",
+		"cpus-per-task": "4",
+		"extra" : "",
+		"output"  : "00log/{rule}_{wildcards}.out",
+		"error" : "00log/{rule}_{wildcards}.err",
+		"debug" :"sh_out/{rule}_{wildcards}.sh" 
+	},
+	"calculate_pairwise_metrics" :
+	{
+		"cpus-per-task": "16",
+		"mem": "40G"
+	}
+
+}	

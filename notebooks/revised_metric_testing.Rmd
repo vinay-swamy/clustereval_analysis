@@ -1,0 +1,48 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r}
+library(tidyverse)
+library(scPOP)
+library(ggalluvial)
+library(scater)
+library(scuttle)
+knn90_labels <- read_csv('cluster_out/ds-pbmc_sim_10groups-V1_alg-louvain_knn-90_.csv.gz', 
+                         col_names =  c('Barcode', 'knn90label') )
+knn10_labels <- read_csv('cluster_out/ds-pbmc_sim_10groups-V1_alg-louvain_knn-10_.csv.gz',
+                         col_names =  c('Barcode', 'knn10label') )
+load('data/sim_rdata/pbmc_sim_10groups-V1_alldata.Rdata')
+true_labels <- colData(sce_sim) %>% as.data.frame %>% mutate(Barcode = 0:(nrow(.)-1))
+
+all_labels <- inner_join(true_labels, knn10_labels) %>% inner_join(knn90_labels)%>% dplyr::arrange(Barcode)
+sim_rand$calc_labels = 
+#true_labels %>% select(Barcode, Group) %>% write_csv('data/true_labels/pbmc_sim_10groups-V1_labels.csv.gz')
+sim_rand <- runUMAP(sim_rand)
+plotUMAP(sim_rand,colour_by = "Group")
+  
+```
+```{r}
+ggplot(all_labels, aes(axis1 = Group, axis2 = knn10label)) + 
+  geom_alluvium(width = 1/12) + 
+  geom_stratum(width = 1/12, fill = "black", color = "grey") +
+  geom_label(stat = "stratum", aes(label = after_stat(stratum))) + 
+  theme_minimal()
+```
+
+```{r}
+knn90_labels <- read_csv('cluster_out/ds-pbmc_sim_20groups-V1_alg-louvain_knn-90_.csv.gz', 
+                         col_names =  c('Barcode', 'knn90label') )
+knn10_labels <- read_csv('cluster_out/ds-pbmc_sim_20groups-V1_alg-louvain_knn-10_.csv.gz',
+                         col_names =  c('Barcode', 'knn10label') )
+load('data/sim_rdata/pbmc_sim_20groups-V1_alldata.Rdata')
+true_labels <- colData(sce_sim) %>% as.data.frame %>% mutate(Barcode = 0:(nrow(.)-1))
+
+all_labels <- inner_join(true_labels, knn10_labels) %>% inner_join(knn90_labels)
+  nmi(all_labels$Group, all_labels$knn10label)
+true_labels %>% select(Barcode, Group) %>% write_csv('data/true_labels/pbmc_sim_20groups-V1_labels.csv.gz')
+```
+

@@ -1,0 +1,257 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(tidyverse)
+library(Seurat)
+load('/data/swamyvs/scEiad_quant/pipeline_data/cell_info/cell_info_labelled.Rdata')
+load('/data/swamyvs/scEiad_quant/pipeline_data/clean_quant/SRP158081/mm-mus_musculus/matrix.Rdata')
+pbmc_data <- Read10X(data.dir = "/data/swamyvs/clustereval/analysis/filtered_gene_bc_matrices/hg19/")
+sanes_data <- data.table::fread('/data/swamyvs/clustereval/analysis/data/GSE149715_MouseAC_count_matrix.csv.gz') %>% as.data.frame
+rownames(sanes_data) <- sanes_data$V1
+sanes_data <- sanes_data[,-1]
+seu <- CreateSeuratObject(counts =spliced, min.cells = 3, min.features = 200)
+seu <- NormalizeData(seu)
+seu <- FindVariableFeatures(seu, selection.method = "vst", nfeatures = 5000)
+
+get_var_feature_mat <- function(data){
+  seu <- CreateSeuratObject(counts=data, min.cells = 3, min.features = 200)
+  seu <- NormalizeData(seu)
+  seu <- FindVariableFeatures(seu, selection.method = "vst", nfeatures = 5000)
+  return(Seurat::GetAssayData(seu, 'counts')[VariableFeatures(seu),])
+  
+}
+
+
+pbmc_vf <- get_var_feature_mat(pbmc_data)
+sanes_vf <- get_var_feature_mat(sanes_data)
+clark_vf <- get_var_feature_mat(spliced)
+```
+
+
+
+
+```{r}
+library(scater)
+library(scuttle)
+library(patchwork)
+library(splatter)
+pbmc_sce <- SingleCellExperiment(list(counts=as.matrix(pbmc_vf)))
+
+pbmc_params <- splatEstimate(counts = pbmc_sce)
+srange <- seq(.75, .85, .01)
+nSimG = 10
+test_params <- lapply(1:5, function(x) list(params = pbmc_params,
+                                            method='groups', 
+                                            batchCells = 10000,
+                                            group.prob = sample(1:10, size=nSimG, replace = T) %>%  {./sum(.)}, 
+                                            de.prob=sample(1:10, size=nSimG, replace = T) %>%  {./sum(.)},
+                                            de.downProb = .5, 
+                                            de.facLoc = sample(srange, 1), 
+                                            de.facScale= sample(srange, 1)))
+
+pca_pplot <- ggplot()
+umap_pplot <- ggplot()
+for( simpar in test_params){
+    sce_sim <- do.call(splatSimulate, simpar)
+    sim_rand <- logNormCounts(sce_sim)
+    sim_rand <- runPCA(sim_rand )
+    
+    simpar[[4]] = round(simpar[[4]], digits=3) %>% c('\n') %>%  paste0(collapse = '-')
+    pca_pplot <- pca_pplot +  (plotPCA(sim_rand, colour_by = "Group") + 
+                                 ggtitle(paste(names(simpar)[4:7], simpar[4:7], sep='-', collapse = '_') )  )
+    sim_rand <- runUMAP(sim_rand)
+    umap_pplot <-umap_pplot +  (plotUMAP(sim_rand,colour_by = "Group") + 
+                                  ggtitle(paste(names(simpar)[4:7], simpar[4:7], sep='-', collapse = '_' )) )
+}
+
+
+
+p <-  umap_pplot+plot_layout(ncol = 1)
+ggsave('umap_sim_exp_randomPar.png', p, width = 10, height = 70, limitsize = F)
+ggsave('pca_sim_exp_randomPar.png', p, width = 10, height = 70, limitsize = F)
+```
+
+```{r}
+sce_sim <- do.call(splatSimulate, test_params[[2]])
+sim_rand <- logNormCounts(sce_sim)
+sim_rand <- runPCA(sim_rand )
+pca <- reducedDim(sim_rand) %>% as_tibble
+write_csv(pca, '../data/count_mats/pbmc_sim_10groups-V1_preproccessed.csv.gz')
+colData(sim_rand) %>% as.data.frame %>% mutate(Barcode = 0:(nrow(.)-1)) %>%  select(Barcode, Group) %>% 
+  write_csv('../data/true_labels/pbmc_sim_10groups-V1_labels.csv.gz')
+sim_params <- test_params[[2]]
+save(pbmc_sce, sce_sim,sim_params, sim_rand, file = '../data/sim_rdata/pbmc_sim_10groups-V1_alldata.Rdata')
+```
+
+
+```{r}
+
+srange <- seq(.5, .85, .01)
+nSimG = 20
+test_params <- lapply(1:5, function(x) list(params = pbmc_params,
+                                            method='groups', 
+                                            batchCells = 10000,
+                                            group.prob = sample(1:10, size=nSimG, replace = T) %>%  {./sum(.)}, 
+                                            de.prob=.6,
+                                            de.downProb = .5, 
+                                            de.facLoc = sample(srange, 1), 
+                                            de.facScale= sample(srange, 1)))
+
+# pca_pplot <- ggplot()
+# umap_pplot <- ggplot()
+
+simpar = test_params[[1]]
+simpar$de.facLoc <- .4
+simpar$de.facScale <- .4
+#for( simpar in test_params){
+    sce_sim <- do.call(splatSimulate, simpar)
+    sim_rand <- logNormCounts(sce_sim)
+    sim_rand <- runPCA(sim_rand )
+    sim_rand <- runUMAP(sim_rand)
+    
+    # simpar[[4]] = round(simpar[[4]], digits=3) %>% c('\n') %>%  paste0(collapse = '-')
+    # pca_pplot <- pca_pplot +  (plotPCA(sim_rand, colour_by = "Group") + 
+    #                              ggtitle(paste(names(simpar)[4:7], simpar[4:7], sep='-', collapse = '_') )  )
+    # 
+    # umap_pplot <-umap_pplot +  
+      (plotUMAP(sim_rand,colour_by = "Group") + 
+                                  ggtitle(paste(names(simpar)[4:7], simpar[4:7], sep='-', collapse = '_' )) )
+#}
+
+# p <-  umap_pplot+plot_layout(ncol = 1)
+# ggsave('umap_sim_exp_randomPar.png', p, width = 10, height = 70, limitsize = F)
+
+```
+
+```{r}
+pca <- reducedDim(sim_rand) %>% as_tibble
+write_csv(pca, '../data/count_mats/pbmc_sim_20groups-V1_preproccessed.csv.gz')
+colData(sim_rand) %>% as.data.frame %>% mutate(Barcode = 0:(nrow(.)-1)) %>%  select(Barcode, Group) %>% 
+  write_csv('../data/true_labels/pbmc_sim_20groups-V1_labels.csv.gz')
+
+sim_params <- simpar
+save(pbmc_params, pbmc_sce, sce_sim,sim_params, sim_rand, file = '../data/sim_rdata/pbmc_sim_20groups-V1_alldata.Rdata')
+
+
+
+```
+
+
+
+<!-- ```{r} -->
+<!-- load('sanes_sim_data.Rdata') -->
+<!-- save('g') -->
+<!-- ``` -->
+
+
+
+
+
+<!-- ```{r} -->
+<!-- simpar <- list(params = pbmc_params,method='groups', group.prob = weight,  -->
+<!--      de.prob=.3,de.downProb = .3, de.facLoc = .3, de.facScale= .3) -->
+<!-- sce_sim <- do.call(splatSimulate, simpar) -->
+<!-- sim_rand <- logNormCounts(sce_sim) -->
+<!-- sim_rand <- runPCA(sim_rand, ) -->
+<!-- sim_rand <- runUMAP(sim_rand) -->
+<!-- plotUMAP(sim_rand,colour_by = "Group") -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- sanes_sce <- SingleCellExperiment(list(counts=as.matrix(sanes_vf))) -->
+<!-- sanes_params <- splatEstimate(counts = sanes_sce) -->
+<!-- #save(sanes_params, file = 'sanes_sim_params.Rdata') -->
+<!-- load('../data/sanes_sim_params.Rdata') -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+
+<!-- nSimG = 20 -->
+<!-- srange <- seq(.2, .35, .01) -->
+<!-- test_params <- lapply(1:5, function(x) list(params = sanes_params, -->
+<!--                                             method='groups',  -->
+<!--                                             batchCells=10000, -->
+<!--                                             group.prob = sample(1:10, size=nSimG, replace = T) %>%  {./sum(.)},  -->
+<!--                                             de.prob=.7, -->
+<!--                                             de.downProb = .5,  -->
+<!--                                             de.facLoc = .5,  -->
+<!--                                             de.facScale= .1)) -->
+
+<!-- simpar = list(params = sanes_params, -->
+<!--                                             method='groups',  -->
+<!--                                             batchCells=10000, -->
+<!--                                             group.prob = sample(1:10, size=nSimG, replace = T) %>%  {./sum(.)},  -->
+<!--                                             de.prob=.7, -->
+<!--                                             de.downProb = .5,  -->
+<!--                                             de.facLoc = .1,  -->
+<!--                                             de.facScale= .5) -->
+
+
+<!-- pca_pplot <- ggplot() -->
+<!-- umap_pplot <- ggplot() -->
+<!-- #for( simpar in test_params){ -->
+<!--     sce_sim <- do.call(splatSimulate, simpar) -->
+<!--     sim_rand <- logNormCounts(sce_sim) -->
+<!--     sim_rand <- runPCA(sim_rand ) -->
+<!--     sim_rand <- runUMAP(sim_rand) -->
+
+<!--     pca_pplot <- pca_pplot +  (plotPCA(sim_rand, colour_by = "Group") +  -->
+<!--                                  theme(legend.position = 'none') ) -->
+
+<!--     umap_pplot <-umap_pplot +   -->
+<!--       (plotUMAP(sim_rand,colour_by = "Group") +  -->
+<!--                                  theme(legend.position = 'none')  ) -->
+
+<!-- #} -->
+<!-- p <-  umap_pplot+plot_layout(ncol = 1) -->
+<!-- ggsave('../plots/sanes_umap_sim_exp_randomPar.png', p, width = 10, height = 70, limitsize = F) -->
+<!-- g <- pca_pplot+plot_layout(ncol = 1) -->
+<!-- ggsave('../plots/sanes_pca_sim_exp_randomPar.png', g,  width = 10, height = 70, limitsize = F) -->
+
+<!-- ``` -->
+<!-- ```{r} -->
+<!-- test_params -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- p <-  umap_pplot+plot_layout(ncol = 1) -->
+<!-- ggsave('../plots/sanes_umap_sim_exp_randomPar.png', p, width = 10, height = 70, limitsize = F) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- clark_group_weights_rand <- sample(1:25, size=25, replace = T) %>% {./sum(.)} -->
+<!-- clark_group_weights_uniform <- rep(1/25, 25) -->
+<!-- clark_sce <- SingleCellExperiment(list(counts=as.matrix(clark_vf))) -->
+<!-- clark_params <- splatEstimate(counts = clark_sce) -->
+<!-- save(clark_params, file = 'clark_sim_data.Rdata') -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- pbmc_pca_rand %>% select(-Barcode) %>% write_csv('data/pbmc_simulated_rand_preproccessed.csv.gz') -->
+<!-- sanes_pca_rand %>% select(-Barcode) %>% write_csv('data/sanes_simulated_rand_preproccessed.csv.gz') -->
+<!-- clark_pca_rand %>% select(-Barcode) %>% write_csv('data/clark_simulated_rand_preproccessed.csv.gz') -->
+
+<!-- pbmc_pca_uniform %>% select(-Barcode) %>% write_csv('data/pbmc_simulated_uniform_preproccessed.csv.gz') -->
+<!-- sanes_pca_uniform %>% select(-Barcode) %>% write_csv('data/sanes_simulated_uniform_preproccessed.csv.gz') -->
+<!-- clark_pca_uniform %>% select(-Barcode) %>% write_csv('data/clark_simulated_uniform_preproccessed.csv.gz') -->
+
+<!-- ``` -->
+
+
+
+
+<!-- ```{r} -->
+<!-- #read_csv('data/pbmc_preproccessed.csv.gz') %>% .[,-1] %>% write_csv('data/pbmc_preproccessed.csv.gz') -->
+<!-- #read_csv('data/sanes_amacrine_preproccessed.csv.gz') %>% .[,-1] %>% write_csv('data/sanes_amacrine_preproccessed.csv.gz') -->
+<!-- ``` -->
+
+
